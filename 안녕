@@ -1,0 +1,284 @@
+import streamlit as st
+import random
+
+# 스트림릿 페이지 설정
+st.set_page_config(page_title="Five Nights at Freddy's - Streamlit", layout="centered")
+
+# --- 게임 상태(Session State) 초기화 ---
+if "game_started" not in st.session_state:
+    st.session_state.game_started = False
+if "time" not in st.session_state:
+    st.session_state.time = 0  # 0 = 12 AM, 6 = 6 AM (승리)
+if "power" not in st.session_state:
+    st.session_state.power = 100.0
+if "left_door" not in st.session_state:
+    st.session_state.left_door = False
+if "right_door" not in st.session_state:
+    st.session_state.right_door = False
+if "left_light" not in st.session_state:
+    st.session_state.left_light = False
+if "right_light" not in st.session_state:
+    st.session_state.right_light = False
+if "current_cam" not in st.session_state:
+    st.session_state.current_cam = "CAM 1A"
+if "game_over" not in st.session_state:
+    st.session_state.game_over = False
+if "victory" not in st.session_state:
+    st.session_state.victory = False
+if "jumpscare_by" not in st.session_state:
+    st.session_state.jumpscare_by = None
+
+# --- 애니매트로닉스 위치 및 고증 상태 초기화 ---
+if "positions" not in st.session_state:
+    st.session_state.positions = {
+        "Freddy": "CAM 1A",
+        "Bonnie": "CAM 1A",
+        "Chica": "CAM 1A",
+        "Foxy": "CAM 1C_Phase1",  # Phase 1 ~ 3 대기, Run = 돌진
+        "Golden_Freddy": "Off"
+    }
+
+# 원작 데이터 기반 기괴한 비주얼 묘사 및 텍스트 데이터
+DESCRIPTIONS = {
+    "Freddy": "🐻 **[프레디 파즈베어]**\n갈색 곰 인형 마스코트. 어둠 속에서 두 눈만 푸르게 빛나며 카메라를 정면으로 응시하고 있습니다.",
+    "Bonnie": "🐰 **[보니]**\n보라색 토끼. 이가 다 드러난 채 고개를 기괴하게 꺾고 카메라 렌즈 바로 앞까지 다가와 있습니다.",
+    "Chica": "🐥 **[치카]**\n노란색 닭. 'LET'S EAT!!!' 턱받이를 한 채 입을 벌리고 방 구석에서 당신을 노려봅니다.",
+    "Foxy": "🦊 **[폭시]**\n해적 코브의 붉은 여우. 커튼 틈새로 살기가 느껴지는 눈빛을 보내고 있습니다.",
+    "Golden_Freddy": "🟡 **[골든 프레디]**\n눈과 관절이 모두 풀린 채 오피스 바닥에 시체처럼 주저앉아 있습니다. 방 안 가득 환청이 울립니다."
+}
+
+# --- FNaF 1 핵심 게임 루프 엔진 ---
+def game_tick():
+    if st.session_state.game_over or st.session_state.victory:
+        return
+
+    # 1. 사용량에 따른 전력 소모 (문, 조명 켤수록 가속화)
+    usage = 1 
+    if st.session_state.left_door: usage += 1
+    if st.session_state.right_door: usage += 1
+    if st.session_state.left_light: usage += 1
+    if st.session_state.right_light: usage += 1
+    
+    st.session_state.power -= usage * 0.75
+    
+    if st.session_state.power <= 0:
+        st.session_state.power = 0
+        st.session_state.game_over = True
+        st.session_state.jumpscare_by = "Freddy (전력 차단)"
+        return
+
+    # 2. 시간 경과 처리 (확률적)
+    if random.random() < 0.12:
+        st.session_state.time += 1
+        if st.session_state.time >= 6:
+            st.session_state.victory = True
+            return
+
+    # 3. 골든 프레디 이스터 에그 (CAM 2B를 볼 때 희박한 확률로 오피스 난입)
+    if st.session_state.current_cam == "CAM 2B" and random.random() < 0.06 and st.session_state.positions["Golden_Freddy"] == "Off":
+        st.session_state.positions["Golden_Freddy"] = "Office"
+
+    # 4. 애니매트로닉스 이동 AI 루틴
+    # [보니 - 왼쪽 전용]
+    if random.random() < 0.28:
+        bp = st.session_state.positions["Bonnie"]
+        if bp == "CAM 1A": st.session_state.positions["Bonnie"] = "CAM 1B"
+        elif bp == "CAM 1B": st.session_state.positions["Bonnie"] = random.choice(["CAM 3", "CAM 2A"])
+        elif bp == "CAM 3": st.session_state.positions["Bonnie"] = "CAM 2A"
+        elif bp == "CAM 2A": st.session_state.positions["Bonnie"] = "CAM 2B"
+        elif bp == "CAM 2B": st.session_state.positions["Bonnie"] = "Left_Door_Zone"
+
+    # [치카 - 오른쪽 전용]
+    if random.random() < 0.25:
+        cp = st.session_state.positions["Chica"]
+        if cp == "CAM 1A": st.session_state.positions["Chica"] = "CAM 1B"
+        elif cp == "CAM 1B": st.session_state.positions["Chica"] = random.choice(["CAM 7", "CAM 4A"])
+        elif cp == "CAM 7": st.session_state.positions["Chica"] = "CAM 4A"
+        elif cp == "CAM 4A": st.session_state.positions["Chica"] = "CAM 4B"
+        elif cp == "CAM 4B": st.session_state.positions["Chica"] = "Right_Door_Zone"
+
+    # [폭시 - 해적 코브 단계별 탈출 기믹]
+    if random.random() < 0.18:
+        fp = st.session_state.positions["Foxy"]
+        if fp == "CAM 1C_Phase1": st.session_state.positions["Foxy"] = "CAM 1C_Phase2"
+        elif fp == "CAM 1C_Phase2": st.session_state.positions["Foxy"] = "CAM 1C_Phase3"
+        elif fp == "CAM 1C_Phase3": st.session_state.positions["Foxy"] = "Run"
+
+    # [프레디 - 후반기 습격 AI]
+    if st.session_state.time >= 3 and random.random() < 0.15:
+        frp = st.session_state.positions["Freddy"]
+        if frp == "CAM 1A": st.session_state.positions["Freddy"] = "CAM 1B"
+        elif frp == "CAM 1B": st.session_state.positions["Freddy"] = "CAM 7"
+        elif frp == "CAM 7": st.session_state.positions["Freddy"] = "CAM 4A"
+        elif frp == "CAM 4A": st.session_state.positions["Freddy"] = "CAM 4B"
+        elif frp == "CAM 4B": st.session_state.positions["Freddy"] = "Right_Door_Zone"
+
+    # 5. 데드신 (Jumpscare) 트리거 조건 확인
+    if st.session_state.positions["Bonnie"] == "Left_Door_Zone" and not st.session_state.left_door:
+        if random.random() < 0.4:
+            st.session_state.game_over = True
+            st.session_state.jumpscare_by = "Bonnie"
+
+    if st.session_state.positions["Chica"] == "Right_Door_Zone" and not st.session_state.right_door:
+        if random.random() < 0.4:
+            st.session_state.game_over = True
+            st.session_state.jumpscare_by = "Chica"
+
+    if st.session_state.positions["Foxy"] == "Run":
+        if st.session_state.left_door:
+            st.session_state.power -= 15  # 폭시가 문을 두드려 전력 크게 차감
+            st.session_state.positions["Foxy"] = "CAM 1C_Phase1"  # 다시 복귀
+        else:
+            st.session_state.game_over = True
+            st.session_state.jumpscare_by = "Foxy"
+
+    if st.session_state.positions["Golden_Freddy"] == "Office":
+        if random.random() < 0.5:
+            st.session_state.game_over = True
+            st.session_state.jumpscare_by = "Golden Freddy"
+
+# --- UI 및 게임 화면 구성 ---
+st.title("🚨 Five Nights at Freddy's - Streamlit Edition")
+
+if not st.session_state.game_started:
+    st.markdown("### 🍕 파즈베어 피자가게 야간 경비실")
+    st.write("오전 12시부터 오전 6시까지 살아남으십시오. 전력이 완전히 바닥나거나 인형들이 오피스 내부로 들어오면 비극을 맞이하게 됩니다.")
+    if st.button("야간 근무 시작 (Start Night)", type="primary"):
+        st.session_state.game_started = True
+        st.rerun()
+
+elif st.session_state.victory:
+    st.balloons()
+    st.success("🎉 **오전 6시!** 살아남으셨습니다! 첫 번째 밤을 무사히 버텨냈군요!")
+    if st.button("다시 도전하기"):
+        st.session_state.clear()
+        st.rerun()
+
+elif st.session_state.game_over:
+    st.error(f"💀 **GAME OVER** - [{st.session_state.jumpscare_by}]에게 당했습니다!")
+    st.code("""
+    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
+    [ SCREAM !!! ] 
+    애니매트로닉스가 경비실 모니터를 깨부수고 당신을 덮쳤습니다.
+    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
+    """)
+    if st.button("처음부터 다시 시도"):
+        st.session_state.clear()
+        st.rerun()
+
+else:
+    # 매 액션 상호작용마다 틱 계산 실행
+    game_tick()
+
+    # 상단 대시보드 (시간 및 전력 상황판)
+    head1, head2, head3 = st.columns(3)
+    with head1:
+        display_time = 12 if st.session_state.time == 0 else st.session_state.time
+        st.metric(label="⏰ 시간", value=f"오전 {display_time} 시")
+    with head2:
+        st.metric(label="🔋 남은 전력", value=f"{st.session_state.power:.1f} %")
+    with head3:
+        usage_meter = 1 + st.session_state.left_door + st.session_state.right_door + st.session_state.left_light + st.session_state.right_light
+        st.metric(label="⚡ 전력 사용량", value="🔺" * usage_meter)
+
+    st.markdown("---")
+
+    # 오피스 제어 패널(좌측)과 CCTV 모니터(우측) 공간 분할
+    office_side, cam_side = st.columns([1, 1])
+
+    with office_side:
+        st.subheader("🖥️ 경비실 내부 (Office)")
+        
+        # 문 & 조명 토글 컨트롤
+        st.write("**[왼쪽 출입구]**")
+        l_col1, l_col2 = st.columns(2)
+        with l_col1:
+            if st.button(f"왼쪽 문 {'🛑 [닫힘]' if st.session_state.left_door else '⚪ [열림]'}", key="btn_l_door", use_container_width=True):
+                st.session_state.left_door = not st.session_state.left_door
+                st.rerun()
+        with l_col2:
+            if st.button(f"왼쪽 조명 {'🟡 [ON]' if st.session_state.left_light else '⚪ [OFF]'}", key="btn_l_light", use_container_width=True):
+                st.session_state.left_light = not st.session_state.left_light
+                st.rerun()
+
+        st.write("**[오른쪽 출입구]**")
+        r_col1, r_col2 = st.columns(2)
+        with r_col1:
+            if st.button(f"오른쪽 문 {'🛑 [닫힘]' if st.session_state.right_door else '⚪ [열림]'}", key="btn_r_door", use_container_width=True):
+                st.session_state.right_door = not st.session_state.right_door
+                st.rerun()
+        with r_col2:
+            if st.button(f"오른쪽 조명 {'🟡 [ON]' if st.session_state.right_light else '⚪ [OFF]'}", key="btn_r_light", use_container_width=True):
+                st.session_state.right_light = not st.session_state.right_light
+                st.rerun()
+
+        st.markdown("---")
+        st.write("👀 **창문 복도 실시간 확인:**")
+        
+        # 블라인드 조명 고증 체크
+        if st.session_state.left_light:
+            if st.session_state.positions["Bonnie"] == "Left_Door_Zone":
+                st.error("⚠️ [❗] 보니가 창문 바로 옆에 붙어 그림자를 드리우고 있습니다! 즉시 문을 닫으세요!")
+            else:
+                st.info("왼쪽 복도 벽면에 불빛이 가득하지만 아무도 보이지 않습니다.")
+        
+        if st.session_state.right_light:
+            if st.session_state.positions["Chica"] == "Right_Door_Zone":
+                st.error("⚠️ [❗] 치카가 부자연스러운 표정으로 창문을 들여다보고 있습니다! 즉시 문을 닫으세요!")
+            else:
+                st.info("오른쪽 창문 너머 복도는 텅 비어 있습니다.")
+
+        # 골든 프레디 난입 연출
+        if st.session_state.positions["Golden_Freddy"] == "Office":
+            st.warning(DESCRIPTIONS["Golden_Freddy"])
+            st.caption("🚨 골든 프레디가 오피스 안에 들어왔습니다! 빨리 우측 패널의 CCTV 버튼 아무거나 눌러 모니터를 키세요! 그렇지 않으면 사망합니다!")
+
+    with cam_side:
+        st.subheader("📹 보안 카메라 피드 (CCTV)")
+        
+        # 실제 원작 맵 구조를 반영한 카메라 패드 그리드
+        cam_grid = [
+            ["CAM 1A", "CAM 1B", "CAM 1C"],
+            ["CAM 2A", "CAM 2B", "CAM 3"],
+            ["CAM 4A", "CAM 4B", "CAM 5"],
+            ["CAM 7"]
+        ]
+        
+        for row in cam_grid:
+            cols = st.columns(len(row))
+            for idx, cam_code in enumerate(row):
+                with cols[idx]:
+                    if st.button(cam_code, key=f"btn_{cam_code}", use_container_width=True):
+                        st.session_state.current_cam = cam_code
+                        # 원작 고증: 오피스에 골든프레디가 있을 때 모니터를 켜면 리셋됨
+                        if st.session_state.positions["Golden_Freddy"] == "Office":
+                            st.session_state.positions["Golden_Freddy"] = "Off"
+                        st.rerun()
+
+        st.markdown(f"📡 현재 렌더링 중인 채널: **{st.session_state.current_cam}**")
+        
+        # 현재 채널에 존재하는 인형들 탐지 및 정밀 상황 묘사
+        target_cam = st.session_state.current_cam
+        found_any = False
+
+        for char_name, current_pos in st.session_state.positions.items():
+            if current_pos == target_cam or (target_cam == "CAM 1C" and "CAM 1C" in current_pos):
+                st.markdown(DESCRIPTIONS[char_name])
+                found_any = True
+                
+                # 폭시 고증 전용 디테일 메시지
+                if char_name == "Foxy":
+                    f_stage = st.session_state.positions["Foxy"]
+                    if "Phase1" in f_stage: st.info("ℹ️ 여우 인형이 보이지 않게 보라색 커튼이 완벽하게 닫혀 있습니다.")
+                    elif "Phase2" in f_stage: st.warning("ℹ️ 커튼이 살짝 열리며 폭시의 머리와 안대가 카메라에 비치기 시작했습니다.")
+                    elif "Phase3" in f_stage: st.error("ℹ️ 폭시가 커튼을 완전히 젖히고 복도로 튀어나가기 직전 포즈를 취하고 있습니다!")
+
+        if not found_any:
+            st.caption("이 구역 카메라엔 아무것도 찍히지 않습니다. 지직거리는 노이즈 화면뿐입니다.")
+            if target_cam == "CAM 7":
+                st.caption("🎵 [주방 카메라 영상 신호 유실] 스피커를 통해 주방에서 냄비와 그릇들이 요란하게 부딪히는 소리만 전해집니다.")
+
+    # 턴 넘기기 버튼 (행동 컴퓨터 역할 유도)
+    st.markdown("---")
+    if st.button("🔄 숨죽이고 주변 동태 살피기 (시간 진행 및 현황 갱신)"):
+        st.rerun()
