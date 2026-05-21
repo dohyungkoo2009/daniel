@@ -1,284 +1,523 @@
-import streamlit as st
-import random
-
-# 스트림릿 페이지 설정
-st.set_page_config(page_title="Five Nights at Freddy's - Streamlit", layout="centered")
-
-# --- 게임 상태(Session State) 초기화 ---
-if "game_started" not in st.session_state:
-    st.session_state.game_started = False
-if "time" not in st.session_state:
-    st.session_state.time = 0  # 0 = 12 AM, 6 = 6 AM (승리)
-if "power" not in st.session_state:
-    st.session_state.power = 100.0
-if "left_door" not in st.session_state:
-    st.session_state.left_door = False
-if "right_door" not in st.session_state:
-    st.session_state.right_door = False
-if "left_light" not in st.session_state:
-    st.session_state.left_light = False
-if "right_light" not in st.session_state:
-    st.session_state.right_light = False
-if "current_cam" not in st.session_state:
-    st.session_state.current_cam = "CAM 1A"
-if "game_over" not in st.session_state:
-    st.session_state.game_over = False
-if "victory" not in st.session_state:
-    st.session_state.victory = False
-if "jumpscare_by" not in st.session_state:
-    st.session_state.jumpscare_by = None
-
-# --- 애니매트로닉스 위치 및 고증 상태 초기화 ---
-if "positions" not in st.session_state:
-    st.session_state.positions = {
-        "Freddy": "CAM 1A",
-        "Bonnie": "CAM 1A",
-        "Chica": "CAM 1A",
-        "Foxy": "CAM 1C_Phase1",  # Phase 1 ~ 3 대기, Run = 돌진
-        "Golden_Freddy": "Off"
-    }
-
-# 원작 데이터 기반 기괴한 비주얼 묘사 및 텍스트 데이터
-DESCRIPTIONS = {
-    "Freddy": "🐻 **[프레디 파즈베어]**\n갈색 곰 인형 마스코트. 어둠 속에서 두 눈만 푸르게 빛나며 카메라를 정면으로 응시하고 있습니다.",
-    "Bonnie": "🐰 **[보니]**\n보라색 토끼. 이가 다 드러난 채 고개를 기괴하게 꺾고 카메라 렌즈 바로 앞까지 다가와 있습니다.",
-    "Chica": "🐥 **[치카]**\n노란색 닭. 'LET'S EAT!!!' 턱받이를 한 채 입을 벌리고 방 구석에서 당신을 노려봅니다.",
-    "Foxy": "🦊 **[폭시]**\n해적 코브의 붉은 여우. 커튼 틈새로 살기가 느껴지는 눈빛을 보내고 있습니다.",
-    "Golden_Freddy": "🟡 **[골든 프레디]**\n눈과 관절이 모두 풀린 채 오피스 바닥에 시체처럼 주저앉아 있습니다. 방 안 가득 환청이 울립니다."
-}
-
-# --- FNaF 1 핵심 게임 루프 엔진 ---
-def game_tick():
-    if st.session_state.game_over or st.session_state.victory:
-        return
-
-    # 1. 사용량에 따른 전력 소모 (문, 조명 켤수록 가속화)
-    usage = 1 
-    if st.session_state.left_door: usage += 1
-    if st.session_state.right_door: usage += 1
-    if st.session_state.left_light: usage += 1
-    if st.session_state.right_light: usage += 1
-    
-    st.session_state.power -= usage * 0.75
-    
-    if st.session_state.power <= 0:
-        st.session_state.power = 0
-        st.session_state.game_over = True
-        st.session_state.jumpscare_by = "Freddy (전력 차단)"
-        return
-
-    # 2. 시간 경과 처리 (확률적)
-    if random.random() < 0.12:
-        st.session_state.time += 1
-        if st.session_state.time >= 6:
-            st.session_state.victory = True
-            return
-
-    # 3. 골든 프레디 이스터 에그 (CAM 2B를 볼 때 희박한 확률로 오피스 난입)
-    if st.session_state.current_cam == "CAM 2B" and random.random() < 0.06 and st.session_state.positions["Golden_Freddy"] == "Off":
-        st.session_state.positions["Golden_Freddy"] = "Office"
-
-    # 4. 애니매트로닉스 이동 AI 루틴
-    # [보니 - 왼쪽 전용]
-    if random.random() < 0.28:
-        bp = st.session_state.positions["Bonnie"]
-        if bp == "CAM 1A": st.session_state.positions["Bonnie"] = "CAM 1B"
-        elif bp == "CAM 1B": st.session_state.positions["Bonnie"] = random.choice(["CAM 3", "CAM 2A"])
-        elif bp == "CAM 3": st.session_state.positions["Bonnie"] = "CAM 2A"
-        elif bp == "CAM 2A": st.session_state.positions["Bonnie"] = "CAM 2B"
-        elif bp == "CAM 2B": st.session_state.positions["Bonnie"] = "Left_Door_Zone"
-
-    # [치카 - 오른쪽 전용]
-    if random.random() < 0.25:
-        cp = st.session_state.positions["Chica"]
-        if cp == "CAM 1A": st.session_state.positions["Chica"] = "CAM 1B"
-        elif cp == "CAM 1B": st.session_state.positions["Chica"] = random.choice(["CAM 7", "CAM 4A"])
-        elif cp == "CAM 7": st.session_state.positions["Chica"] = "CAM 4A"
-        elif cp == "CAM 4A": st.session_state.positions["Chica"] = "CAM 4B"
-        elif cp == "CAM 4B": st.session_state.positions["Chica"] = "Right_Door_Zone"
-
-    # [폭시 - 해적 코브 단계별 탈출 기믹]
-    if random.random() < 0.18:
-        fp = st.session_state.positions["Foxy"]
-        if fp == "CAM 1C_Phase1": st.session_state.positions["Foxy"] = "CAM 1C_Phase2"
-        elif fp == "CAM 1C_Phase2": st.session_state.positions["Foxy"] = "CAM 1C_Phase3"
-        elif fp == "CAM 1C_Phase3": st.session_state.positions["Foxy"] = "Run"
-
-    # [프레디 - 후반기 습격 AI]
-    if st.session_state.time >= 3 and random.random() < 0.15:
-        frp = st.session_state.positions["Freddy"]
-        if frp == "CAM 1A": st.session_state.positions["Freddy"] = "CAM 1B"
-        elif frp == "CAM 1B": st.session_state.positions["Freddy"] = "CAM 7"
-        elif frp == "CAM 7": st.session_state.positions["Freddy"] = "CAM 4A"
-        elif frp == "CAM 4A": st.session_state.positions["Freddy"] = "CAM 4B"
-        elif frp == "CAM 4B": st.session_state.positions["Freddy"] = "Right_Door_Zone"
-
-    # 5. 데드신 (Jumpscare) 트리거 조건 확인
-    if st.session_state.positions["Bonnie"] == "Left_Door_Zone" and not st.session_state.left_door:
-        if random.random() < 0.4:
-            st.session_state.game_over = True
-            st.session_state.jumpscare_by = "Bonnie"
-
-    if st.session_state.positions["Chica"] == "Right_Door_Zone" and not st.session_state.right_door:
-        if random.random() < 0.4:
-            st.session_state.game_over = True
-            st.session_state.jumpscare_by = "Chica"
-
-    if st.session_state.positions["Foxy"] == "Run":
-        if st.session_state.left_door:
-            st.session_state.power -= 15  # 폭시가 문을 두드려 전력 크게 차감
-            st.session_state.positions["Foxy"] = "CAM 1C_Phase1"  # 다시 복귀
-        else:
-            st.session_state.game_over = True
-            st.session_state.jumpscare_by = "Foxy"
-
-    if st.session_state.positions["Golden_Freddy"] == "Office":
-        if random.random() < 0.5:
-            st.session_state.game_over = True
-            st.session_state.jumpscare_by = "Golden Freddy"
-
-# --- UI 및 게임 화면 구성 ---
-st.title("🚨 Five Nights at Freddy's - Streamlit Edition")
-
-if not st.session_state.game_started:
-    st.markdown("### 🍕 파즈베어 피자가게 야간 경비실")
-    st.write("오전 12시부터 오전 6시까지 살아남으십시오. 전력이 완전히 바닥나거나 인형들이 오피스 내부로 들어오면 비극을 맞이하게 됩니다.")
-    if st.button("야간 근무 시작 (Start Night)", type="primary"):
-        st.session_state.game_started = True
-        st.rerun()
-
-elif st.session_state.victory:
-    st.balloons()
-    st.success("🎉 **오전 6시!** 살아남으셨습니다! 첫 번째 밤을 무사히 버텨냈군요!")
-    if st.button("다시 도전하기"):
-        st.session_state.clear()
-        st.rerun()
-
-elif st.session_state.game_over:
-    st.error(f"💀 **GAME OVER** - [{st.session_state.jumpscare_by}]에게 당했습니다!")
-    st.code("""
-    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
-    [ SCREAM !!! ] 
-    애니매트로닉스가 경비실 모니터를 깨부수고 당신을 덮쳤습니다.
-    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
-    """)
-    if st.button("처음부터 다시 시도"):
-        st.session_state.clear()
-        st.rerun()
-
-else:
-    # 매 액션 상호작용마다 틱 계산 실행
-    game_tick()
-
-    # 상단 대시보드 (시간 및 전력 상황판)
-    head1, head2, head3 = st.columns(3)
-    with head1:
-        display_time = 12 if st.session_state.time == 0 else st.session_state.time
-        st.metric(label="⏰ 시간", value=f"오전 {display_time} 시")
-    with head2:
-        st.metric(label="🔋 남은 전력", value=f"{st.session_state.power:.1f} %")
-    with head3:
-        usage_meter = 1 + st.session_state.left_door + st.session_state.right_door + st.session_state.left_light + st.session_state.right_light
-        st.metric(label="⚡ 전력 사용량", value="🔺" * usage_meter)
-
-    st.markdown("---")
-
-    # 오피스 제어 패널(좌측)과 CCTV 모니터(우측) 공간 분할
-    office_side, cam_side = st.columns([1, 1])
-
-    with office_side:
-        st.subheader("🖥️ 경비실 내부 (Office)")
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Five Nights at Freddy's - HTML5 Edition</title>
+    <style>
+        body {
+            background-color: #0c0c0c;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            user-select: none;
+        }
+        h1, h2, h3 { text-align: center; margin: 5px 0; }
+        .screen {
+            width: 100%;
+            max-width: 900px;
+            background-color: #111;
+            border: 4px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .hidden { display: none !important; }
         
-        # 문 & 조명 토글 컨트롤
-        st.write("**[왼쪽 출입구]**")
-        l_col1, l_col2 = st.columns(2)
-        with l_col1:
-            if st.button(f"왼쪽 문 {'🛑 [닫힘]' if st.session_state.left_door else '⚪ [열림]'}", key="btn_l_door", use_container_width=True):
-                st.session_state.left_door = not st.session_state.left_door
-                st.rerun()
-        with l_col2:
-            if st.button(f"왼쪽 조명 {'🟡 [ON]' if st.session_state.left_light else '⚪ [OFF]'}", key="btn_l_light", use_container_width=True):
-                st.session_state.left_light = not st.session_state.left_light
-                st.rerun()
+        /* 대시보드 */
+        .dashboard {
+            display: flex;
+            justify-content: space-between;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #444;
+        }
+        .metric { font-size: 1.2rem; font-weight: bold; }
+        .usage-red { color: #ff3333; }
 
-        st.write("**[오른쪽 출입구]**")
-        r_col1, r_col2 = st.columns(2)
-        with r_col1:
-            if st.button(f"오른쪽 문 {'🛑 [닫힘]' if st.session_state.right_door else '⚪ [열림]'}", key="btn_r_door", use_container_width=True):
-                st.session_state.right_door = not st.session_state.right_door
-                st.rerun()
-        with r_col2:
-            if st.button(f"오른쪽 조명 {'🟡 [ON]' if st.session_state.right_light else '⚪ [OFF]'}", key="btn_r_light", use_container_width=True):
-                st.session_state.right_light = not st.session_state.right_light
-                st.rerun()
+        /* 메인 게임 레이아웃 */
+        .game-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .game-container { grid-template-columns: 1fr; }
+        }
 
-        st.markdown("---")
-        st.write("👀 **창문 복도 실시간 확인:**")
-        
-        # 블라인드 조명 고증 체크
-        if st.session_state.left_light:
-            if st.session_state.positions["Bonnie"] == "Left_Door_Zone":
-                st.error("⚠️ [❗] 보니가 창문 바로 옆에 붙어 그림자를 드리우고 있습니다! 즉시 문을 닫으세요!")
-            else:
-                st.info("왼쪽 복도 벽면에 불빛이 가득하지만 아무도 보이지 않습니다.")
-        
-        if st.session_state.right_light:
-            if st.session_state.positions["Chica"] == "Right_Door_Zone":
-                st.error("⚠️ [❗] 치카가 부자연스러운 표정으로 창문을 들여다보고 있습니다! 즉시 문을 닫으세요!")
-            else:
-                st.info("오른쪽 창문 너머 복도는 텅 비어 있습니다.")
+        /* 컨트롤 패널 & 복도 */
+        .panel {
+            background: #151515;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #333;
+        }
+        .control-group {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #202020;
+            border-radius: 4px;
+        }
+        .btn {
+            background: #2a2a2a;
+            color: white;
+            border: 2px solid #444;
+            padding: 10px 15px;
+            font-family: inherit;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 5px;
+            border-radius: 4px;
+        }
+        .btn:hover { background: #3a3a3a; }
+        .btn.active {
+            background: #cc9900;
+            color: black;
+            border-color: #ffcc00;
+        }
+        .btn.danger {
+            background: #990000;
+            border-color: #ff3333;
+        }
 
-        # 골든 프레디 난입 연출
-        if st.session_state.positions["Golden_Freddy"] == "Office":
-            st.warning(DESCRIPTIONS["Golden_Freddy"])
-            st.caption("🚨 골든 프레디가 오피스 안에 들어왔습니다! 빨리 우측 패널의 CCTV 버튼 아무거나 눌러 모니터를 키세요! 그렇지 않으면 사망합니다!")
+        /* 모니터 / 카메라 */
+        .cam-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .cam-btn {
+            background: #222;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .cam-btn:hover { background: #003300; }
+        .cam-btn.active {
+            background: #00ff00;
+            color: black;
+            font-weight: bold;
+        }
+        .cam-view {
+            background: #050505;
+            border: 2px dashed #00ff00;
+            padding: 15px;
+            min-height: 180px;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            line-height: 1.4;
+        }
 
-    with cam_side:
-        st.subheader("📹 보안 카메라 피드 (CCTV)")
-        
-        # 실제 원작 맵 구조를 반영한 카메라 패드 그리드
-        cam_grid = [
-            ["CAM 1A", "CAM 1B", "CAM 1C"],
-            ["CAM 2A", "CAM 2B", "CAM 3"],
-            ["CAM 4A", "CAM 4B", "CAM 5"],
-            ["CAM 7"]
-        ]
-        
-        for row in cam_grid:
-            cols = st.columns(len(row))
-            for idx, cam_code in enumerate(row):
-                with cols[idx]:
-                    if st.button(cam_code, key=f"btn_{cam_code}", use_container_width=True):
-                        st.session_state.current_cam = cam_code
-                        # 원작 고증: 오피스에 골든프레디가 있을 때 모니터를 켜면 리셋됨
-                        if st.session_state.positions["Golden_Freddy"] == "Office":
-                            st.session_state.positions["Golden_Freddy"] = "Off"
-                        st.rerun()
+        /* 윈도우 알림창 패널 */
+        .window-alert {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 4px;
+            background: #222;
+            border-left: 5px solid #555;
+        }
+        .alert-active {
+            background: #331111;
+            border-left-color: #ff3333;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            50% { border-left-color: transparent; }
+        }
 
-        st.markdown(f"📡 현재 렌더링 중인 채널: **{st.session_state.current_cam}**")
-        
-        # 현재 채널에 존재하는 인형들 탐지 및 정밀 상황 묘사
-        target_cam = st.session_state.current_cam
-        found_any = False
+        /* 점프스케어 및 메인 화면 */
+        .center-screen {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        .jumpscare-box {
+            background: black;
+            color: red;
+            border: 5px solid red;
+            padding: 30px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 20px 0;
+            white-space: pre-line;
+            animation: shake 0.1s infinite;
+        }
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(0px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(2px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(2px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+    </style>
+</head>
+<body>
 
-        for char_name, current_pos in st.session_state.positions.items():
-            if current_pos == target_cam or (target_cam == "CAM 1C" and "CAM 1C" in current_pos):
-                st.markdown(DESCRIPTIONS[char_name])
-                found_any = True
+    <!-- 1. 스타트 화면 -->
+    <div id="start-screen" class="screen center-screen">
+        <h2>🍕 Freddy Fazbear's Pizza</h2>
+        <p>야간 경비실에 오신 것을 환영합니다.<br>오전 12시부터 오전 6시까지 움직이는 인형들로부터 살아남으십시오.</p>
+        <button class="btn" style="max-width: 300px; margin-top: 20px;" onclick="startGame()">야간 근무 시작 (Start Night)</button>
+    </div>
+
+    <!-- 2. 게임 메인 화면 -->
+    <div id="game-screen" class="screen hidden">
+        <!-- 상단 계기판 -->
+        <div class="dashboard">
+            <div class="metric" id="display-time">⏰ 시간: 오전 12 시</div>
+            <div class="metric" id="display-power">🔋 남은 전력: 100.0 %</div>
+            <div class="metric" id="display-usage">⚡ 전력 소모: <span id="usage-sig">🔺</span></div>
+        </div>
+
+        <!-- 메인 분할 레이아웃 -->
+        <div class="game-container">
+            
+            <!-- 왼쪽: 오피스 컨트롤 패널 -->
+            <div class="panel">
+                <h3>🖥️ 경비실 내부 (Office)</h3>
                 
-                # 폭시 고증 전용 디테일 메시지
-                if char_name == "Foxy":
-                    f_stage = st.session_state.positions["Foxy"]
-                    if "Phase1" in f_stage: st.info("ℹ️ 여우 인형이 보이지 않게 보라색 커튼이 완벽하게 닫혀 있습니다.")
-                    elif "Phase2" in f_stage: st.warning("ℹ️ 커튼이 살짝 열리며 폭시의 머리와 안대가 카메라에 비치기 시작했습니다.")
-                    elif "Phase3" in f_stage: st.error("ℹ️ 폭시가 커튼을 완전히 젖히고 복도로 튀어나가기 직전 포즈를 취하고 있습니다!")
+                <div class="control-group">
+                    <label><b>[왼쪽 출입구]</b></label>
+                    <button id="btn-left-door" class="btn" onclick="toggleLeftDoor()">왼쪽 문 [열림]</button>
+                    <button id="btn-left-light" class="btn" onclick="toggleLeftLight()">왼쪽 조명 [OFF]</button>
+                </div>
 
-        if not found_any:
-            st.caption("이 구역 카메라엔 아무것도 찍히지 않습니다. 지직거리는 노이즈 화면뿐입니다.")
-            if target_cam == "CAM 7":
-                st.caption("🎵 [주방 카메라 영상 신호 유실] 스피커를 통해 주방에서 냄비와 그릇들이 요란하게 부딪히는 소리만 전해집니다.")
+                <div class="control-group">
+                    <label><b>[오른쪽 출입구]</b></label>
+                    <button id="btn-right-door" class="btn" onclick="toggleRightDoor()">오른쪽 문 [열림]</button>
+                    <button id="btn-right-light" class="btn" onclick="toggleRightLight()">오른쪽 조명 [OFF]</button>
+                </div>
 
-    # 턴 넘기기 버튼 (행동 컴퓨터 역할 유도)
-    st.markdown("---")
-    if st.button("🔄 숨죽이고 주변 동태 살피기 (시간 진행 및 현황 갱신)"):
-        st.rerun()
+                <h3>👀 복도 시야 확인</h3>
+                <div id="window-left" class="window-alert">왼쪽 불빛이 꺼져있습니다.</div>
+                <div id="window-right" class="window-alert">오른쪽 불빛이 꺼져있습니다.</div>
+                
+                <!-- 골든프레디 습격 연출 공간 -->
+                <div id="golden-office-alert" class="hidden" style="color: yellow; background: #333011; padding: 10px; margin-top: 15px; border: 2px solid yellow; font-size: 0.9rem;">
+                    🟡 <b>[골든 프레디]</b> 눈과 관절이 모두 꺾인 노란 곰 인형이 오피스 바닥에 주저앉아 있습니다! <b>빨리 카메라 버튼을 눌러 모니터를 켜세요!</b>
+                </div>
+            </div>
+
+            <!-- 오른쪽: CCTV 카메라 모니터 -->
+            <div class="panel" style="border-color: #00ff00;">
+                <h3>📹 보안 카메라 모니터 (CCTV)</h3>
+                <div class="cam-grid">
+                    <button class="cam-btn active" id="cam-1A" onclick="switchCam('1A')">1A</button>
+                    <button class="cam-btn" id="cam-1B" onclick="switchCam('1B')">1B</button>
+                    <button class="cam-btn" id="cam-1C" onclick="switchCam('1C')">1C</button>
+                    <button class="cam-btn" id="cam-2A" onclick="switchCam('2A')">2A</button>
+                    <button class="cam-btn" id="cam-2B" onclick="switchCam('2B')">2B</button>
+                    <button class="cam-btn" id="cam-3" onclick="switchCam('3')">3</button>
+                    <button class="cam-btn" id="cam-4A" onclick="switchCam('4A')">4A</button>
+                    <button class="cam-btn" id="cam-4B" onclick="switchCam('4B')">4B</button>
+                    <button class="cam-btn" id="cam-5" onclick="switchCam('5')">5</button>
+                    <button class="cam-btn" id="cam-7" onclick="switchCam('7')">7</button>
+                </div>
+                <div class="cam-view" id="cam-feed">
+                    데이터를 불러오는 중...
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 턴 넘기기 유도 버튼 -->
+        <button class="btn" style="margin-top: 20px; padding: 15px; font-size: 1.1rem; background: #225522; border-color: #33aa33;" onclick="gameTick()">
+            🔄 숨죽이고 주변 동태 살피기 (시간 소요 / 상황 동기화)
+        </button>
+    </div>
+
+    <!-- 3. 게임오버 화면 -->
+    <div id="gameover-screen" class="screen center-screen hidden">
+        <h2 style="color: red;">💀 GAME OVER</h2>
+        <p id="gameover-reason"></p>
+        <div class="jumpscare-box" id="jumpscare-graphic"></div>
+        <button class="btn danger" style="max-width: 300px;" onclick="resetGame()">처음부터 다시 도전</button>
+    </div>
+
+    <!-- 4. 승리 화면 -->
+    <div id="victory-screen" class="screen center-screen hidden">
+        <h2 style="color: #00ff00;">🎉 6 AM</h2>
+        <h3>대성공! 살아남으셨습니다!</h3>
+        <p>파즈베어 피자가게에서의 생존을 축하합니다. 주간 수당이 지급됩니다.</p>
+        <button class="btn" style="max-width: 300px; background: green;" onclick="resetGame()">다시 플레이하기</button>
+    </div>
+
+    <!-- --- 게임 내부 자바스크립트(JS) 엔진 코드 --- -->
+    <script>
+        // 게임 환경 변수 상태 정의
+        let state = {
+            time: 0,
+            power: 100.0,
+            leftDoor: false,
+            rightDoor: false,
+            leftLight: false,
+            rightLight: false,
+            currentCam: '1A',
+            positions: {
+                Freddy: '1A',
+                Bonnie: '1A',
+                Chica: '1A',
+                Foxy: '1C_P1', // P1, P2, P3, Run
+                GoldenFreddy: 'Off'
+            }
+        };
+
+        const descriptions = {
+            Freddy: "🐻 <b>[프레디 파즈베어]</b><br>갈색 곰 마스코트. 어둠 속에서 푸른 안광만 빛내며 카메라 정면을 응시 중입니다.",
+            Bonnie: "🐰 <b>[보니]</b><br>보라색 토끼. 기괴하게 목을 꺾은 채 렌즈 바로 앞까지 다가와 노려보고 있습니다.",
+            Chica: "🐥 <b>[치카]</b><br>노란색 닭. 'LET'S EAT!!!' 턱받이를 메고 부리를 벌린 채 구석에 서 있습니다.",
+            Foxy: "🦊 <b>[폭시]</b><br>해적 코브의 붉은 여우 인형. 날카로운 살기를 뿜어냅니다.",
+            GoldenFreddy: "🟡 <b>[골든 프레디]</b><br>눈이 텅 빈 노란 인형이 방 안에 무참히 놓여있습니다. 기괴한 환청이 고막을 찌릅니다."
+        };
+
+        function startGame() {
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            updateUI();
+        }
+
+        function resetGame() {
+            state = {
+                time: 0, power: 100.0,
+                leftDoor: false, rightDoor: false, leftLight: false, rightLight: false,
+                currentCam: '1A',
+                positions: { Freddy: '1A', Bonnie: '1A', Chica: '1A', Foxy: '1C_P1', GoldenFreddy: 'Off' }
+            };
+            document.getElementById('gameover-screen').classList.add('hidden');
+            document.getElementById('victory-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            updateUI();
+        }
+
+        // 도어 및 조명 버튼 토글 매핑 처리
+        function toggleLeftDoor() { state.leftDoor = !state.leftDoor; updateUI(); }
+        function toggleLeftLight() { state.leftLight = !state.leftLight; updateUI(); }
+        function toggleRightDoor() { state.rightDoor = !state.rightDoor; updateUI(); }
+        function toggleRightLight() { state.rightLight = !state.rightLight; updateUI(); }
+
+        function switchCam(camName) {
+            state.currentCam = camName;
+            // 원작 고증: 골든 프레디가 오피스에 침입했을 때 모니터를 열어 카메라를 확인하면 소멸
+            if(state.positions.GoldenFreddy === 'Office') {
+                state.positions.GoldenFreddy = 'Off';
+            }
+            updateUI();
+        }
+
+        // FNaF 1 턴당 메인 처리 엔진 알고리즘
+        function gameTick() {
+            // 1. 전력 소비 연산
+            let usage = 1;
+            if(state.leftDoor) usage++;
+            if(state.rightDoor) usage++;
+            if(state.leftLight) usage++;
+            if(state.rightLight) usage++;
+
+            state.power -= usage * 0.8;
+            if(state.power <= 0) {
+                endGame(false, "Freddy (전력 완전히 차단됨)", "⚠️ 암전\n전력이 모두 끊겼습니다. 어둠 속에서 프레디의 오르골 음악 소리가 들리더니 눈이 번쩍입니다.");
+                return;
+            }
+
+            // 2. 시간 흐름 (확률)
+            if(Math.random() < 0.15) {
+                state.time++;
+                if(state.time >= 6) {
+                    endGame(true);
+                    return;
+                }
+            }
+
+            // 3. 골든 프레디 기믹 고증 (CAM 2B 체크 시 극악 확률 등장)
+            if(state.currentCam === '2B' && Math.random() < 0.06 && state.positions.GoldenFreddy === 'Off') {
+                state.positions.GoldenFreddy = 'Office';
+            }
+
+            // 4. 애니매트로닉스 인공지능 경로 스케줄러
+            // 보니 (왼쪽 경로 개입)
+            if(Math.random() < 0.3) {
+                let p = state.positions.Bonnie;
+                if(p === '1A') state.positions.Bonnie = '1B';
+                else if(p === '1B') state.positions.Bonnie = Math.random() < 0.5 ? '3' : '2A';
+                else if(p === '3') state.positions.Bonnie = '2A';
+                else if(p === '2A') state.positions.Bonnie = '2B';
+                else if(p === '2B') state.positions.Bonnie = 'Left_Zone';
+            }
+
+            // 치카 (오른쪽 경로 개입)
+            if(Math.random() < 0.26) {
+                let p = state.positions.Chica;
+                if(p === '1A') state.positions.Chica = '1B';
+                else if(p === '1B') state.positions.Chica = Math.random() < 0.5 ? '7' : '4A';
+                else if(p === '7') state.positions.Chica = '4A';
+                else if(p === '4A') state.positions.Chica = '4B';
+                else if(p === '4B') state.positions.Chica = 'Right_Zone';
+            }
+
+            // 폭시 (커튼 개방 단계 탈출형)
+            if(Math.random() < 0.18) {
+                let p = state.positions.Foxy;
+                if(p === '1C_P1') state.positions.Foxy = '1C_P2';
+                else if(p === '1C_P2') state.positions.Foxy = '1C_P3';
+                else if(p === '1C_P3') state.positions.Foxy = 'Run';
+            }
+
+            // 프레디 (새벽 3시 이후 야간 기습 돌입 AI)
+            if(state.time >= 3 && Math.random() < 0.15) {
+                let p = state.positions.Freddy;
+                if(p === '1A') state.positions.Freddy = '1B';
+                else if(p === '1B') state.positions.Freddy = '7';
+                else if(p === '7') state.positions.Freddy = '4A';
+                else if(p === '4A') state.positions.Freddy = '4B';
+                else if(p === '4B') state.positions.Freddy = 'Right_Zone';
+            }
+
+            // 5. 점프스케어 데드라인 조건 검사 판정
+            if(state.positions.Bonnie === 'Left_Zone' && !state.leftDoor) {
+                if(Math.random() < 0.5) { endGame(false, "보니 (Bonnie)", "🔊 SCREAM!!!\n보니가 기괴하게 입을 벌리고 보안실 책상 위로 도약해 당신을 낚아챕니다."); return; }
+            }
+            if(state.positions.Chica === 'Right_Zone' && !state.rightDoor) {
+                if(Math.random() < 0.5) { endGame(false, "치카 (Chica)", "🔊 SCREAM!!!\n치카의 내부 내골격 장치가 비명을 지르며 오피스 내부를 헤집어 놓습니다."); return; }
+            }
+            if(state.positions.Foxy === 'Run') {
+                if(state.leftDoor) {
+                    state.power -= 15; // 철문 강타로 전력 소진 페널티 고증
+                    state.positions.Foxy = '1C_P1'; // 커튼 원위치 리셋
+                } else {
+                    endGame(false, "폭시 (Foxy)", "🔊 SCREAM!!!\n폭시가 서쪽 복도를 질주해 들어와 오피스 내부로 날카로운 갈고리를 들이밉니다.");
+                    return;
+                }
+            }
+            if(state.positions.GoldenFreddy === 'Office') {
+                if(Math.random() < 0.4) {
+                    endGame(false, "골든 프레디 (Golden Freddy)", "💀 🟡 💀 🟡\n방을 어지럽히는 가청 주파수의 비명 소리와 함께 게임이 강제 종료 직전 파괴됩니다.");
+                    return;
+                }
+            }
+
+            updateUI();
+        }
+
+        function endGame(isVictory, attacker = "", graphicText = "") {
+            document.getElementById('game-screen').classList.add('hidden');
+            if(isVictory) {
+                document.getElementById('victory-screen').classList.remove('hidden');
+            } else {
+                document.getElementById('gameover-reason').innerText = `사유: [${attacker}] 습격당함`;
+                document.getElementById('jumpscare-graphic').innerText = graphicText;
+                document.getElementById('gameover-screen').classList.remove('hidden');
+            }
+        }
+
+        // 동적 인터페이스 드로잉
+        function updateUI() {
+            // 대시보드 텍스트 갱신
+            document.getElementById('display-time').innerText = `⏰ 시간: 오전 ${state.time === 0 ? 12 : state.time} 시`;
+            document.getElementById('display-power').innerText = `🔋 남은 전력: ${Math.max(0, state.power).toFixed(1)} %`;
+            
+            let usageMeter = 1 + state.leftDoor + state.rightDoor + state.leftLight + state.rightLight;
+            document.getElementById('usage-sig').innerText = "🔺".repeat(usageMeter);
+            if(usageMeter >= 3) document.getElementById('usage-sig').className = "usage-red";
+            else document.getElementById('usage-sig').className = "";
+
+            // 문/라이트 상태 UI 동기화
+            document.getElementById('btn-left-door').innerText = `왼쪽 문 ${state.leftDoor ? '🔴 [닫힘]' : '⚪ [열림]'}`;
+            document.getElementById('btn-left-door').className = `btn ${state.leftDoor ? 'danger' : ''}`;
+            document.getElementById('btn-left-light').innerText = `왼쪽 조명 ${state.leftLight ? '🟡 [ON]' : '⚪ [OFF]'}`;
+            document.getElementById('btn-left-light').className = `btn ${state.leftLight ? 'active' : ''}`;
+
+            document.getElementById('btn-right-door').innerText = `오른쪽 문 ${state.rightDoor ? '🔴 [닫힘]' : '⚪ [열림]'}`;
+            document.getElementById('btn-right-door').className = `btn ${state.rightDoor ? 'danger' : ''}`;
+            document.getElementById('btn-right-light').innerText = `오른쪽 조명 ${state.rightLight ? '🟡 [ON]' : '⚪ [OFF]'}`;
+            document.getElementById('btn-right-light').className = `btn ${state.rightLight ? 'active' : ''}`;
+
+            // 오피스 내부 불빛 실시간 상황판 반영
+            const winLeft = document.getElementById('window-left');
+            if(state.leftLight) {
+                if(state.positions.Bonnie === 'Left_Zone') {
+                    winLeft.innerText = "⚠️ [!] 보니가 창문 유리에 하얗게 질린 얼굴을 들이밀고 있습니다! 문을 닫으세요!";
+                    winLeft.className = "window-alert alert-active";
+                } else {
+                    winLeft.innerText = "💡 불빛이 복도를 비추고 있으나 통로는 비어있습니다.";
+                    winLeft.className = "window-alert";
+                }
+            } else {
+                winLeft.innerText = "왼쪽 불빛이 꺼져있습니다.";
+                winLeft.className = "window-alert";
+            }
+
+            const winRight = document.getElementById('window-right');
+            if(state.rightLight) {
+                if(state.positions.Chica === 'Right_Zone') {
+                    winRight.innerText = "⚠️ [!] 치카가 입을 벌린 채 창문 틈으로 경비실 안을 감시 중입니다! 문을 닫으세요!";
+                    winRight.className = "window-alert alert-active";
+                } else {
+                    winRight.innerText = "💡 불빛이 들어왔지만 오른쪽 복도는 조용합니다.";
+                    winRight.className = "window-alert";
+                }
+            } else {
+                winRight.innerText = "오른쪽 불빛이 꺼져있습니다.";
+                winRight.className = "window-alert";
+            }
+
+            // 골든프레디 오피스 하이라이트
+            if(state.positions.GoldenFreddy === 'Office') {
+                document.getElementById('golden-office-alert').classList.remove('hidden');
+            } else {
+                document.getElementById('golden-office-alert').classList.add('hidden');
+            }
+
+            // 카메라 토글 스타일 및 스트림 노이즈 묘사 연출
+            document.querySelectorAll('.cam-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`cam-${state.currentCam}`).classList.add('active');
+
+            let feedBox = document.getElementById('cam-feed');
+            let detected = [];
+
+            for(let name in state.positions) {
+                let pos = state.positions[name];
+                if(pos === state.currentCam || (state.currentCam === '1C' && name === 'Foxy' && pos.startsWith('1C'))) {
+                    detected.push(name);
+                }
+            }
+
+            if(detected.length > 0) {
+                let htmlContent = "";
+                detected.forEach(char => {
+                    htmlContent += descriptions[char] + "<br><br>";
+                    if(char === 'Foxy') {
+                        let phase = state.positions.Foxy;
+                        if(phase === '1C_P1') htmlContent += "<span style='color:cyan;'>[상태] 보라색 커튼이 굳게 닫혀 잠잠합니다.</span>";
+                        if(phase === '1C_P2') htmlContent += "<span style='color:yellow;'>[상태] 커튼 틈새 밖으로 폭시가 머리를 내밀고 있습니다.</span>";
+                        if(phase === '1C_P3') htmlContent += "<span style='color:orange;'>[상태] 폭시가 커튼 밖으로 기어나와 탈출 직전 태세를 취합니다!</span>";
+                    }
+                });
+                feedBox.innerHTML = htmlContent;
+            } else {
+                if(state.currentCam === '7') {
+                    feedBox.innerHTML = "<span style='color:#777;'>[영상 신호 유실 - 오디오 전용 송출 중]</span><br><br>🎵 주방 안쪽에서 프레디의 오르골 음악 소리와 거친 쇠그릇 냄비가 달그락거리며 부딪히는 소리가 간헐적으로 들려옵니다.";
+                } else {
+                    feedBox.innerHTML = "<span style='color:#555;'>[노이즈 패턴 지직거림]</span><br><br>정적만이 가득하며 텅 빈 복도의 잔상 외에 아무 움직임도 포착되지 않습니다.";
+                }
+            }
+        }
+    </script>
+</body>
+</html>
